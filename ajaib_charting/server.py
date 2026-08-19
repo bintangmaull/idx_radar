@@ -7,6 +7,9 @@ import yfinance as yf
 import threading
 import time
 import json
+from tvDatafeed import TvDatafeed, Interval
+
+tv = TvDatafeed()
 
 app = Flask(__name__)
 # Cache untuk menyimpan data Support & Resistance (agar tidak kena limit API)
@@ -114,11 +117,13 @@ def get_support_resistance(stock_code):
 
     try:
         # Ambil data 5 hari terakhir
-        ticker = yf.Ticker(f"{stock_code}.JK")
-        hist = ticker.history(period="5d")
+        hist = tv.get_hist(symbol=stock_code, exchange='IDX', interval=Interval.in_daily, n_bars=5)
         
-        if len(hist) < 2:
+        if hist is None or len(hist) < 2:
             return jsonify({"status": "error", "message": "Data tidak cukup"}), 404
+            
+        hist.rename(columns={'high': 'High', 'low': 'Low', 'close': 'Close'}, inplace=True)
+
             
         # Ambil data H-1 (hari sebelumnya) untuk perhitungan Pivot yang akurat
         prev_day = hist.iloc[-2]
@@ -250,10 +255,17 @@ def run_scanner():
     for i, stock in enumerate(wl):
         scan_state["log"].append(f"Menganalisa {stock} ({i+1}/{total})...")
         try:
-            ticker = yf.Ticker(f"{stock}.JK")
             # --- INTRADAY SCALPING SETUP ---
-            # Mengambil 5 hari ke belakang dengan interval 5 menit
-            hist = ticker.history(period="5d", interval="5m").dropna()
+            # Mengambil data intraday dengan interval 5 menit (390 bars = ~5 hari)
+            hist = tv.get_hist(symbol=stock, exchange='IDX', interval=Interval.in_5_minute, n_bars=400)
+            
+            if hist is None or hist.empty:
+                scan_state["log"].append(f"-> Tidak ada data untuk {stock}")
+                continue
+                
+            hist.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close', 'volume': 'Volume'}, inplace=True)
+            hist = hist.dropna()
+
             
             if len(hist) >= 72: # Butuh minimal 1 hari data (72 bar)
                 last_row = hist.iloc[-1]
