@@ -1,0 +1,7 @@
+venv_scraper/
+venv/
+env/
+__pycache__/
+*.pyc
+orderbook.db
+.DS_Store

@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="id" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ajaib Orderbook Radar</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkbg: '#121212',
+                        panel: '#1E1E1E'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+        body { background-color: #121212; color: #E0E0E0; font-family: 'Inter', sans-serif; }
+        .glass-panel {
+            background: rgba(30, 30, 30, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col p-6">
+    <div class="max-w-6xl mx-auto w-full flex-grow flex flex-col">
+        <!-- Header -->
+        <header class="flex justify-between items-center mb-6">
+            <div>
+                <h1 class="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-emerald-400">
+                    Radar Jejak Bandar
+                </h1>
+                <p class="text-gray-400 text-sm mt-1">Real-time Orderbook Analysis</p>
+            </div>
+            
+            <div class="flex items-center space-x-3">
+                <label for="stockSelector" class="text-sm font-semibold">Pilih Saham:</label>
+                <select id="stockSelector" class="bg-gray-800 border border-gray-700 text-white rounded px-4 py-2 focus:outline-none focus:border-blue-500">
+                    <option value="">-- Menunggu Data --</option>
+                </select>
+                <button onclick="refreshData()" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded font-semibold transition-colors">
+                    🔄 Refresh
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Chart Area -->
+        <main class="glass-panel rounded-xl p-6 flex flex-col shadow-2xl relative">
+            <div id="loading" class="absolute inset-0 flex items-center justify-center bg-black/50 rounded-xl hidden">
+                <p class="text-xl font-bold animate-pulse text-blue-400">Menyinkronkan Data...</p>
+            </div>
+            
+            <div class="flex justify-between items-center mb-4">
+                <h2 id="chartTitle" class="text-xl font-bold text-white">Grafik Tembok Bid vs Ask</h2>
+                <div class="flex space-x-4 text-sm font-bold">
+                    <span class="text-emerald-500">🟩 Total Bid (Support)</span>
+                    <span class="text-red-500">🟥 Total Ask (Resisten)</span>
+                </div>
+            </div>
+            
+            <div class="relative min-h-[350px]">
+                <canvas id="orderbookChart"></canvas>
+            </div>
+        </main>
+
+        <!-- Screener Area -->
+        <main class="glass-panel rounded-xl p-6 flex flex-col shadow-2xl mt-6 mb-10">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold text-emerald-400">🔥 Radar Saham EOD (Gorengan)</h2>
+                <button onclick="startScreener()" id="btnStartScan" class="bg-emerald-600 hover:bg-emerald-700 px-6 py-2 rounded font-bold transition-colors shadow-lg flex items-center">
+                    🚀 Mulai Scan EOD
+                </button>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Watchlist Editor -->
+                <div class="col-span-1 bg-black/30 rounded-lg p-4 border border-gray-700">
+                    <h3 class="font-semibold mb-2 text-sm text-gray-300">Daftar Saham (Pisahkan koma/spasi)</h3>
+                    <textarea id="watchlistInput" class="w-full h-24 bg-gray-900 border border-gray-700 rounded p-2 text-sm font-mono text-blue-300 focus:outline-none focus:border-emerald-500"></textarea>
+                    <button onclick="saveWatchlist()" class="mt-2 w-full bg-blue-600 hover:bg-blue-700 py-2 rounded text-sm font-semibold transition-colors">
+                        💾 Simpan Daftar
+                    </button>
+                </div>
+                
+                <!-- Terminal Log -->
+                <div class="col-span-2 bg-black rounded-lg p-4 border border-gray-700 font-mono text-xs flex flex-col">
+                    <div class="flex justify-between mb-2 text-gray-400">
+                        <span>Terminal Log</span>
+                        <span id="scanPercent">0%</span>
+                    </div>
+                    <div class="w-full bg-gray-800 rounded-full h-1.5 mb-3">
+                        <div id="progressBar" class="bg-emerald-500 h-1.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                    <div id="terminalLog" class="flex-grow overflow-y-auto text-green-400 leading-relaxed h-24">
+                        System ready. Menunggu perintah scan...
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Results Table -->
+            <div class="mt-6 overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-gray-800/50 text-gray-300 text-sm">
+                            <th class="p-3 rounded-tl-lg">Saham</th>
+                            <th class="p-3">Harga Terakhir</th>
+                            <th class="p-3">Sinyal Radar</th>
+                            <th class="p-3">Waktu Data (Delay)</th>
+                            <th class="p-3">Rencana Entry</th>
+                            <th class="p-3 text-emerald-400">Target (TP)</th>
+                            <th class="p-3 text-red-400 rounded-tr-lg">Cutloss (SL)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="screenerResults">
+                        <tr>
+                            <td colspan="7" class="p-4 text-center text-gray-500 text-sm">Belum ada hasil scan.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let chartInstance = null;
+        let currentStock = '';
+
+        // Inisialisasi Chart.js
+        function initChart() {
+            const ctx = document.getElementById('orderbookChart').getContext('2d');
+            
+            // Konfigurasi default agar grafik terlihat modern
+            Chart.defaults.color = '#888';
+            Chart.defaults.font.family = 'Inter';
+
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [], // Waktu (HH:MM:SS)
+                    datasets: [
+                        {
+                            label: 'Total Bid Lot (Ribuan)',
+                            data: [],
+                            borderColor: '#10B981', // Emerald
+                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            fill: true,
+                            tension: 0.4 // Garis melengkung halus
+                        },
+                        {
+                            label: 'Total Ask Lot (Ribuan)',
+                            data: [],
+                            borderColor: '#EF4444', // Red
+                            backgroundColor: 'rgba(239, 68, 68, 0.05)',
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            fill: true,
+                            tension: 0.4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(0,0,0,0.8)',
+                            titleFont: { size: 14 },
+                            bodyFont: { size: 14, weight: 'bold' },
+                            padding: 12
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(255,255,255,0.05)' }
+                        },
+                        y: {
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            title: { display: true, text: 'Lot (x1000)' }
+                        }
+                    },
+                    animation: {
+                        duration: 0 // Matikan animasi agar pembaruan real-time tidak lag
+                    }
+                }
+            });
+        }
+
+        // Meminta daftar saham yang ada di database
+        async function fetchStocks() {
+            try {
+                const res = await fetch('/api/stocks');
+                const stocks = await res.json();
+                
+                const selector = document.getElementById('stockSelector');
+                const currentVal = selector.value;
+                
+                selector.innerHTML = '';
+                
+                if (stocks.length === 0) {
+                    selector.innerHTML = '<option value="">Belum Ada Data</option>';
+                    return;
+                }
+                
+                stocks.forEach(stock => {
+                    const opt = document.createElement('option');
+                    opt.value = stock;
+                    opt.textContent = stock;
+                    selector.appendChild(opt);
+                });
+                
+                // Kembalikan ke pilihan sebelumnya jika ada, atau pilih yang pertama
+                if (stocks.includes(currentVal)) {
+                    selector.value = currentVal;
+                } else {
+                    selector.value = stocks[0];
+                    currentStock = stocks[0];
+                    fetchHistory();
+                }
+            } catch (e) {
+                console.error("Gagal mengambil daftar saham", e);
+            }
+        }
+
+        // Meminta data grafik saham yang dipilih
+        async function fetchHistory() {
+            if (!currentStock) return;
+            
+            try {
+                const res = await fetch(`/api/history/${currentStock}`);
+                const data = await res.json();
+                
+                document.getElementById('chartTitle').innerText = `Grafik Orderbook Saham: ${currentStock}`;
+                
+                // Update chart
+                chartInstance.data.labels = data.map(d => d.timestamp);
+                chartInstance.data.datasets[0].data = data.map(d => d.bid);
+                chartInstance.data.datasets[1].data = data.map(d => d.ask);
+                chartInstance.update();
+                
+            } catch (e) {
+                console.error("Gagal mengambil data historis", e);
+            }
+        }
+
+        // Fungsi manual refresh
+        function refreshData() {
+            fetchStocks();
+            fetchHistory();
+        }
+
+        // Event listener saat saham diganti dari dropdown
+        document.getElementById('stockSelector').addEventListener('change', (e) => {
+            currentStock = e.target.value;
+            fetchHistory();
+        });
+
+        // --- SCREENER LOGIC ---
+        let scanInterval = null;
+        
+        async function fetchWatchlist() {
+            try {
+                const res = await fetch('/api/watchlist');
+                const data = await res.json();
+                document.getElementById('watchlistInput').value = data.watchlist.join(', ');
+            } catch (e) {
+                console.error("Gagal load watchlist", e);
+            }
+        }
+        
+        async function saveWatchlist() {
+            const text = document.getElementById('watchlistInput').value;
+            const wl = text.split(/[\s,]+/).filter(s => s.trim().length > 0);
+            try {
+                const res = await fetch('/api/watchlist', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({watchlist: wl})
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    alert('Watchlist berhasil disimpan!');
+                    document.getElementById('watchlistInput').value = data.watchlist.join(', ');
+                }
+            } catch (e) {
+                alert('Gagal menyimpan watchlist');
+            }
+        }
+        
+        async function startScreener() {
+            document.getElementById('btnStartScan').disabled = true;
+            document.getElementById('btnStartScan').innerText = '⏳ Scanning...';
+            document.getElementById('screenerResults').innerHTML = `<tr><td colspan="7" class="p-4 text-center text-gray-500 text-sm">Memproses data...</td></tr>`;
+            
+            try {
+                await fetch('/api/scan/start', {method: 'POST'});
+                if (scanInterval) clearInterval(scanInterval);
+                scanInterval = setInterval(pollScanProgress, 1000);
+            } catch(e) {
+                console.error(e);
+            }
+        }
+        
+        async function pollScanProgress() {
+            try {
+                const res = await fetch('/api/scan/progress');
+                const data = await res.json();
+                
+                // Update terminal
+                const term = document.getElementById('terminalLog');
+                term.innerHTML = data.log.join('<br>');
+                term.scrollTop = term.scrollHeight; // auto scroll
+                
+                // Update progress
+                document.getElementById('progressBar').style.width = data.percent + '%';
+                document.getElementById('scanPercent').innerText = data.percent + '%';
+                
+                // Update table if there are results
+                if (data.results.length > 0) {
+                    let html = '';
+                    data.results.forEach(r => {
+                        let delayBadge = '';
+                        if (r.delay !== undefined) {
+                            if (r.delay > 15) {
+                                delayBadge = `<span class="text-red-400 text-xs ml-1">(${r.delay}m telat)</span>`;
+                            } else if (r.delay > 5) {
+                                delayBadge = `<span class="text-yellow-400 text-xs ml-1">(${r.delay}m telat)</span>`;
+                            } else {
+                                delayBadge = `<span class="text-emerald-400 text-xs ml-1">(${r.delay}m)</span>`;
+                            }
+                        }
+                        
+                        html += `<tr class="border-b border-gray-800 hover:bg-gray-800/30">
+                            <td class="p-3 font-bold text-blue-400">${r.stock}</td>
+                            <td class="p-3">${r.close}</td>
+                            <td class="p-3">
+                                ${r.signals.map(s => `<span class="bg-emerald-900/50 text-emerald-300 text-xs px-2 py-1 rounded mr-1 border border-emerald-700/50">${s}</span>`).join('')}
+                            </td>
+                            <td class="p-3 whitespace-nowrap text-gray-400 text-sm">${r.data_time || '-'} ${delayBadge}</td>
+                            <td class="p-3 text-gray-300 font-semibold">${r.entry}</td>
+                            <td class="p-3 text-emerald-400 font-bold">${r.tp}</td>
+                            <td class="p-3 text-red-400 font-bold">${r.sl}</td>
+                        </tr>`;
+                    });
+                    document.getElementById('screenerResults').innerHTML = html;
+                }
+                
+                if (data.status === 'finished' || data.status === 'idle') {
+                    // Jika selesai tapi hasil masih kosong
+                    if (data.results.length === 0) {
+                        document.getElementById('screenerResults').innerHTML = `<tr><td colspan="7" class="p-4 text-center text-gray-400 font-semibold">Tidak ada saham yang memenuhi kriteria hari ini.</td></tr>`;
+                    }
+                    
+                    if (scanInterval) {
+                        clearInterval(scanInterval);
+                        scanInterval = null;
+                    }
+                    document.getElementById('btnStartScan').disabled = false;
+                    document.getElementById('btnStartScan').innerText = '🚀 Mulai Scan EOD';
+                }
+            } catch(e) {
+                console.error(e);
+            }
+        }
+
+        // Jalankan saat pertama kali dibuka
+        window.onload = () => {
+            initChart();
+            fetchStocks();
+            fetchWatchlist();
+            
+            // Auto update setiap 1 detik
+            setInterval(() => {
+                fetchStocks();
+                fetchHistory();
+            }, 1000);
+        };
+    </script>
+</body>
+</html>
