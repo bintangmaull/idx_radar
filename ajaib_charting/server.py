@@ -404,4 +404,4 @@ if __name__ == '__main__':
     print("🤖 SERVER DATABASE & CHARTING AJAIB MENYALA")
     print("👉 Buka dashboard grafik di: http://localhost:5000")
     print("="*60)
-    app.run(port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True)

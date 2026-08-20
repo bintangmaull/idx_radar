@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  web-dashboard:
+    build: .
+    container_name: ajaib-web
+    command: ["python", "-u", "server.py"]
+    restart: always
+    volumes:
+      - ./orderbook.db:/app/orderbook.db
+      - ./watchlist.json:/app/watchlist.json
+    networks:
+      - dokploy-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ajaib-web.rule=Host(`sinyal.bintangmaulana.my.id`)"
+      - "traefik.http.services.ajaib-web.loadbalancer.server.port=5000"
+      - "traefik.http.routers.ajaib-web.entrypoints=websecure"
+      - "traefik.http.routers.ajaib-web.tls.certresolver=letsencrypt"
+
+  telegram-bot:
+    build: .
+    container_name: ajaib-bot
+    command: ["python", "-u", "bot_telegram.py"]
+    restart: always
+    volumes:
+      - ./watchlist.json:/app/watchlist.json
+    networks:
+      - dokploy-network
+
+networks:
+  dokploy-network:
+    external: true
