@@ -136,6 +136,35 @@
                 </table>
             </div>
         </main>
+        
+        <!-- History Area -->
+        <main class="glass-panel rounded-xl p-6 flex flex-col shadow-2xl mb-10">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold text-blue-400">📋 Riwayat Scan Terbaru (Database)</h2>
+                <button onclick="fetchLatestScans()" class="bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded text-sm font-semibold transition-colors border border-gray-600">
+                    🔄 Muat Ulang
+                </button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-gray-800/50 text-gray-300 text-sm">
+                            <th class="p-3 rounded-tl-lg">Waktu (UTC)</th>
+                            <th class="p-3">Saham</th>
+                            <th class="p-3">Sinyal</th>
+                            <th class="p-3">Entry</th>
+                            <th class="p-3 text-emerald-400">Target (TP)</th>
+                            <th class="p-3 text-red-400 rounded-tr-lg">Cutloss (SL)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyResults">
+                        <tr>
+                            <td colspan="6" class="p-4 text-center text-gray-500 text-sm">Memuat data riwayat...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </main>
     </div>
 
     <script>
@@ -413,12 +442,45 @@
             }
         }
 
+        async function fetchLatestScans() {
+            try {
+                const res = await fetch('/api/screener/all');
+                const data = await res.json();
+                
+                if (data.status === 'success' && data.results.length > 0) {
+                    let html = '';
+                    data.results.forEach(r => {
+                        let signalsHtml = '';
+                        if (r.signals) {
+                            signalsHtml = r.signals.split(',').map(s => `<span class="bg-blue-900/40 text-blue-300 text-xs px-2 py-1 rounded mr-1 border border-blue-700/50 inline-block mt-1">${s.trim()}</span>`).join('');
+                        }
+                        
+                        html += `<tr class="border-b border-gray-800 hover:bg-gray-800/30">
+                            <td class="p-3 text-gray-400 text-sm whitespace-nowrap">${r.timestamp}</td>
+                            <td class="p-3 font-bold text-blue-400">${r.stock_code}</td>
+                            <td class="p-3">${signalsHtml}</td>
+                            <td class="p-3 text-gray-300 font-semibold">${r.entry || '-'}</td>
+                            <td class="p-3 text-emerald-400 font-bold">${r.tp || '-'}</td>
+                            <td class="p-3 text-red-400 font-bold">${r.sl || '-'}</td>
+                        </tr>`;
+                    });
+                    document.getElementById('historyResults').innerHTML = html;
+                } else {
+                    document.getElementById('historyResults').innerHTML = `<tr><td colspan="6" class="p-4 text-center text-gray-400 font-semibold">Belum ada riwayat scan yang tersimpan di database.</td></tr>`;
+                }
+            } catch(e) {
+                console.error("Gagal load history", e);
+                document.getElementById('historyResults').innerHTML = `<tr><td colspan="6" class="p-4 text-center text-red-400 font-semibold">Gagal memuat data dari database.</td></tr>`;
+            }
+        }
+
         // Jalankan saat pertama kali dibuka
         window.onload = () => {
             initChart();
             fetchStocks();
             fetchWatchlist();
             pollScanProgress();
+            fetchLatestScans();
             
             // Auto update setiap 1 detik
             setInterval(() => {

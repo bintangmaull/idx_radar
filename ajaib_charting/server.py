@@ -184,6 +184,33 @@ def get_latest_screener_result(stock_code):
     else:
         return jsonify({"status": "not_found", "message": "Belum ada hasil scan untuk saham ini"}), 200
 
+@app.route('/api/screener/all')
+def get_all_screener_results():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    # Get all results ordered by most recent first, limit to 50
+    c.execute('''
+        SELECT stock_code, timestamp, signals, entry, tp, sl 
+        FROM screener_results 
+        ORDER BY timestamp DESC
+        LIMIT 50
+    ''')
+    rows = c.fetchall()
+    conn.close()
+    
+    results = []
+    for row in rows:
+        results.append({
+            "stock_code": row[0],
+            "timestamp": row[1],
+            "signals": row[2],
+            "entry": row[3],
+            "tp": row[4],
+            "sl": row[5]
+        })
+    
+    return jsonify({"status": "success", "results": results})
+
 # ========================================================
 # FITUR SCREENER EOD (SAHAM GORENGAN)
 # ========================================================
