@@ -5,3 +5,4 @@ Flask==3.0.2
 Flask-Cors==4.0.0
 git+https://github.com/rongardF/tvdatafeed.git
 yfinance
+python-dotenv

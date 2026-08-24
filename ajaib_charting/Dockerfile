@@ -15,9 +15,11 @@ RUN apt-get update && \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy bot files
-COPY bot_telegram.py .
+# Copy all python files and directories
+COPY *.py .
+COPY templates/ templates/
 COPY watchlist.json .
 
 # Jalankan bot (dengan flag -u agar log muncul realtime di Dokploy)
-CMD ["python", "-u", "bot_telegram.py"]
+# Note: command ini bisa di override oleh docker-compose
+CMD ["python", "-u", "bot_telegram_v4_1.py"]

@@ -6,9 +6,12 @@ import json
 import time
 import requests
 import pytz
+from dotenv import load_dotenv
 
-TELEGRAM_BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
-TELEGRAM_CHAT_ID = "YOUR_CHAT_ID_HERE"
+load_dotenv()
+
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID_HERE")
 SCAN_INTERVAL_SECONDS = 3600
 WATCHLIST_FILE = 'watchlist.json'
 
@@ -48,7 +51,7 @@ def is_market_open():
 def check_bandarmology(stock_code):
     url = f"https://stock.arjum.com/api/broker-summary/{stock_code}?net=false&broker_limit=20&all_data=false&flow=all"
     headers = {
-        "X-API-Key": "sk_live_ml1n2K7otE_C486JoyoXxagO4P1b71MllKv79_xWeR4",
+        "X-API-Key": os.getenv("ARJUM_API_KEY", "YOUR_ARJUM_API_KEY_HERE"),
         "Accept": "application/json"
     }
     try:
@@ -192,8 +195,9 @@ def run_scanner():
         
 def main():
     print("=======================================")
-    print("🤖 TELEGRAM SMART ENTRY V4.1 AKTIF")
+    print("🤖 TELEGRAM SMART ENTRY V5.0 AKTIF")
     print("=======================================")
+    send_telegram_message("🤖 *Bot IDX V5.0 Ultimate* berhasil terhubung!\nStatus: Sedang memantau pasar...")
     while True:
         try:
             if is_market_open():

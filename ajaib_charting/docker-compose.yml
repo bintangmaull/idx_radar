@@ -6,6 +6,8 @@ services:
     container_name: ajaib-web
     command: ["python", "-u", "server.py"]
     restart: always
+    env_file:
+      - .env
     volumes:
       - ./orderbook.db:/app/orderbook.db
       - ./watchlist.json:/app/watchlist.json
@@ -21,8 +23,10 @@ services:
   telegram-bot:
     build: .
     container_name: ajaib-bot
-    command: ["python", "-u", "bot_telegram.py"]
+    command: ["python", "-u", "bot_telegram_v4_1.py"]
     restart: always
+    env_file:
+      - .env
     volumes:
       - ./watchlist.json:/app/watchlist.json
     networks:
