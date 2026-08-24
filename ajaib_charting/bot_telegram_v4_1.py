@@ -14,7 +14,7 @@ load_dotenv()
 DB_FILE = 'data/orderbook.db'
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID_HERE")
-SCAN_INTERVAL_SECONDS = 3600
+SCAN_INTERVAL_SECONDS = 900
 WATCHLIST_FILE = 'watchlist.json'
 
 alert_cache = {}
