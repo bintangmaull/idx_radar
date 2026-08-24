@@ -74,9 +74,19 @@
         <main class="glass-panel rounded-xl p-6 flex flex-col shadow-2xl mt-6 mb-10">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-xl font-bold text-emerald-400">🔥 Radar Saham EOD (Gorengan)</h2>
-                <button onclick="startScreener()" id="btnStartScan" class="bg-emerald-600 hover:bg-emerald-700 px-6 py-2 rounded font-bold transition-colors shadow-lg flex items-center">
-                    🚀 Mulai Scan EOD
-                </button>
+                <div class="flex items-center space-x-3">
+                    <select id="algoSelector" class="bg-gray-800 border border-gray-700 text-white rounded px-4 py-2 text-sm font-semibold focus:outline-none focus:border-emerald-500">
+                        <option value="v4">V4.1 Smart Entry (Swing)</option>
+                        <option value="v1">V1/V2 Scalping (Intraday)</option>
+                    </select>
+                    <select id="timeframeSelector" class="bg-gray-800 border border-gray-700 text-white rounded px-4 py-2 text-sm font-semibold focus:outline-none focus:border-emerald-500">
+                        <option value="5m">5 Menit (5m)</option>
+                        <option value="1m">1 Menit (1m)</option>
+                    </select>
+                    <button onclick="startScreener()" id="btnStartScan" class="bg-emerald-600 hover:bg-emerald-700 px-6 py-2 rounded font-bold transition-colors shadow-lg flex items-center">
+                        🚀 Mulai Scan
+                    </button>
+                </div>
             </div>
             
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -268,6 +278,23 @@
             fetchHistory();
         });
 
+        // Event listener saat algoritma diganti
+        document.getElementById('algoSelector').addEventListener('change', (e) => {
+            const tfSelector = document.getElementById('timeframeSelector');
+            if (e.target.value === 'v4') {
+                tfSelector.innerHTML = '<option value="1h">1 Jam (1h)</option>';
+                tfSelector.disabled = true;
+                tfSelector.classList.add('opacity-50');
+            } else {
+                tfSelector.innerHTML = '<option value="5m">5 Menit (5m)</option><option value="1m">1 Menit (1m)</option>';
+                tfSelector.disabled = false;
+                tfSelector.classList.remove('opacity-50');
+            }
+        });
+
+        // Trigger manual di awal untuk memastikan state yang benar
+        document.getElementById('algoSelector').dispatchEvent(new Event('change'));
+
         // --- SCREENER LOGIC ---
         let scanInterval = null;
         
@@ -305,8 +332,15 @@
             document.getElementById('btnStartScan').innerText = '⏳ Scanning...';
             document.getElementById('screenerResults').innerHTML = `<tr><td colspan="7" class="p-4 text-center text-gray-500 text-sm">Memproses data...</td></tr>`;
             
+            const timeframe = document.getElementById('timeframeSelector').value;
+            const algorithm = document.getElementById('algoSelector').value;
+            
             try {
-                await fetch('/api/scan/start', {method: 'POST'});
+                await fetch('/api/scan/start', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({timeframe: timeframe, algorithm: algorithm})
+                });
                 if (scanInterval) clearInterval(scanInterval);
                 scanInterval = setInterval(pollScanProgress, 1000);
             } catch(e) {
@@ -344,7 +378,10 @@
                         }
                         
                         html += `<tr class="border-b border-gray-800 hover:bg-gray-800/30">
-                            <td class="p-3 font-bold text-blue-400">${r.stock}</td>
+                            <td class="p-3 font-bold text-blue-400">
+                                ${r.stock}
+                                ${r.confidence ? `<div class="mt-1 text-[10px] bg-purple-900/40 text-purple-300 px-2 py-0.5 rounded border border-purple-700/50 inline-block">⭐ ${r.confidence}% Keyakinan</div>` : ''}
+                            </td>
                             <td class="p-3">${r.close}</td>
                             <td class="p-3">
                                 ${r.signals.map(s => `<span class="bg-emerald-900/50 text-emerald-300 text-xs px-2 py-1 rounded mr-1 border border-emerald-700/50">${s}</span>`).join('')}
@@ -369,7 +406,7 @@
                         scanInterval = null;
                     }
                     document.getElementById('btnStartScan').disabled = false;
-                    document.getElementById('btnStartScan').innerText = '🚀 Mulai Scan EOD';
+                    document.getElementById('btnStartScan').innerText = '🚀 Mulai Scan';
                 }
             } catch(e) {
                 console.error(e);

@@ -230,14 +230,22 @@ def start_scan():
     if scan_state["status"] == "scanning":
         return jsonify({"status": "error", "message": "Scan already running"})
         
+    data = request.json or {}
+    timeframe = data.get('timeframe', '5m')
+    algorithm = data.get('algorithm', 'v1')
+        
     scan_state = {
         "status": "scanning",
-        "log": ["Memulai scanning EOD..."],
+        "log": [f"Memulai scanning ({algorithm.upper()} - {timeframe})..."],
         "results": [],
         "percent": 0
     }
     
-    thread = threading.Thread(target=run_scanner)
+    if algorithm == 'v4':
+        thread = threading.Thread(target=run_scanner_v4)
+    else:
+        thread = threading.Thread(target=run_scanner_v1, args=(timeframe,))
+        
     thread.daemon = True
     thread.start()
     
@@ -247,7 +255,7 @@ def start_scan():
 def get_scan_progress():
     return jsonify(scan_state)
 
-def run_scanner():
+def run_scanner_v1(timeframe='5m'):
     global scan_state
     wl = load_watchlist()
     total = len(wl)
@@ -256,8 +264,12 @@ def run_scanner():
         scan_state["log"].append(f"Menganalisa {stock} ({i+1}/{total})...")
         try:
             # --- INTRADAY SCALPING SETUP ---
-            # Mengambil data intraday dengan interval 5 menit (390 bars = ~5 hari)
-            hist = tv.get_hist(symbol=stock, exchange='IDX', interval=Interval.in_5_minute, n_bars=400)
+            if timeframe == '1m':
+                # Mengambil data intraday dengan interval 1 menit (400 bars = ~1 hari)
+                hist = tv.get_hist(symbol=stock, exchange='IDX', interval=Interval.in_1_minute, n_bars=400)
+            else:
+                # Mengambil data intraday dengan interval 5 menit (400 bars = ~5 hari)
+                hist = tv.get_hist(symbol=stock, exchange='IDX', interval=Interval.in_5_minute, n_bars=400)
             
             if hist is None or hist.empty:
                 scan_state["log"].append(f"-> Tidak ada data untuk {stock}")
@@ -394,6 +406,196 @@ def run_scanner():
     scan_state["status"] = "finished"
     scan_state["log"].append("✅ Scanning selesai.")
 
+def check_bandarmology(stock_code):
+    url = f"https://stock.arjum.com/api/broker-summary/{stock_code}?net=false&broker_limit=20&all_data=false&flow=all"
+    headers = {
+        "X-API-Key": "sk_live_ml1n2K7otE_C486JoyoXxagO4P1b71MllKv79_xWeR4",
+        "Accept": "application/json"
+    }
+    try:
+        import requests
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            brokers = data.get("brokers", [])
+            if not brokers: return None, 0, "", ""
+            
+            buyers = [b for b in brokers if b.get('nval', 0) > 0]
+            sellers = [b for b in brokers if b.get('nval', 0) < 0]
+            
+            buyers.sort(key=lambda x: x.get('nval', 0), reverse=True)
+            sellers.sort(key=lambda x: x.get('nval', 0))
+            
+            top_buyers = [b.get('broker_code', '') for b in buyers[:3]]
+            top_sellers = [b.get('broker_code', '') for b in sellers[:3]]
+            
+            total_buy_val = sum([b.get('nval', 0) for b in buyers[:3]])
+            total_sell_val = abs(sum([b.get('nval', 0) for b in sellers[:3]]))
+            
+            is_accum = total_buy_val > total_sell_val
+            net_val = total_buy_val - total_sell_val
+            
+            return is_accum, net_val, ','.join(top_buyers), ','.join(top_sellers)
+    except:
+        pass
+    return None, 0, "", ""
+
+def run_scanner_v4():
+    global scan_state
+    wl = load_watchlist()
+    total = len(wl)
+    
+    def get_ihsg_status_local():
+        try:
+            ihsg = tv.get_hist(symbol='COMPOSITE', exchange='IDX', interval=Interval.in_daily, n_bars=50)
+            if ihsg is not None and not ihsg.empty:
+                ema34 = ihsg['close'].ewm(span=34, adjust=False).mean()
+                return ihsg['close'].iloc[-1] > ema34.iloc[-1]
+        except:
+            pass
+        return True
+        
+    ihsg_uptrend = get_ihsg_status_local()
+    if not ihsg_uptrend:
+        scan_state["log"].append("[IHSG] Market sedang Downtrend. Bot V4.1 hanya mencari setup terkuat.")
+    else:
+        scan_state["log"].append("[IHSG] Market sedang Uptrend. Bot beroperasi normal.")
+        
+    for i, stock in enumerate(wl):
+        scan_state["log"].append(f"Menganalisa {stock} ({i+1}/{total})...")
+        try:
+            hist = tv.get_hist(symbol=stock, exchange='IDX', interval=Interval.in_1_hour, n_bars=150)
+            if hist is None or hist.empty or len(hist) < 90:
+                scan_state["log"].append(f"-> Tidak ada data cukup untuk {stock}")
+                continue
+                
+            hist.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close', 'volume': 'Volume'}, inplace=True)
+            hist = hist.dropna()
+            
+            hist['EMA34'] = hist['Close'].ewm(span=34, adjust=False).mean()
+            hist['EMA90'] = hist['Close'].ewm(span=90, adjust=False).mean()
+            hist['TR'] = hist['High'] - hist['Low']
+            hist['ATR14'] = hist['TR'].rolling(window=14).mean()
+            hist['AvgVol20'] = hist['Volume'].rolling(window=20).mean()
+            
+            last_bar = hist.iloc[-1]
+            close_p = last_bar['Close']
+            open_p = last_bar['Open']
+            high_p = last_bar['High']
+            low_p = last_bar['Low']
+            vol = last_bar['Volume']
+            avgvol = last_bar['AvgVol20']
+            atr = last_bar['ATR14']
+            ema34 = last_bar['EMA34']
+            ema90 = last_bar['EMA90']
+            
+            import pytz
+            from datetime import datetime
+            import pandas as pd
+            jkt_tz = pytz.timezone('Asia/Jakarta')
+            now_jkt = datetime.now(jkt_tz)
+            last_time = hist.index[-1]
+            if last_time.tzinfo is None:
+                last_time = jkt_tz.localize(last_time)
+            else:
+                last_time = last_time.astimezone(jkt_tz)
+                
+            delay_minutes = int((now_jkt - last_time).total_seconds() / 60)
+            if delay_minutes < 0: delay_minutes = 0
+            time_str = last_time.strftime("%H:%M")
+            
+            # if not ihsg_uptrend: continue # Dinonaktifkan sesuai permintaan
+            if ema34 < ema90 or close_p < ema90: continue
+            if low_p > (ema34 * 1.03): continue
+            
+            body = abs(close_p - open_p)
+            tr = high_p - low_p
+            lower_wick = min(open_p, close_p) - low_p
+            if tr == 0: continue
+            
+            is_bullish = close_p > open_p
+            is_pinbar = lower_wick > (1.5 * body) and close_p > ema34
+            is_strong_bullish = is_bullish and body > (0.6 * tr) and close_p > ema34
+            
+            if not (is_pinbar or is_strong_bullish): continue
+            import pandas as pd
+            # Syarat volume dikembalikan super ketat (Wajib lonjakan 20% & > 5000 lot)
+            if pd.isna(avgvol) or vol < (avgvol * 1.2) or vol < 5000: continue
+            
+            # --- CEK BANDARMOLOGI ---
+            is_accum, net_val, accum_str, dist_str = check_bandarmology(stock)
+                
+            signals = []
+            if is_pinbar:
+                signals.append("📌 Pinbar Rejection")
+                entry = int((close_p + low_p) / 2)
+                entry_range = f"Buy Limit @ {entry}"
+            elif is_strong_bullish:
+                signals.append("💪 Bullish Momentum")
+                entry = int(high_p * 1.01)
+                entry_range = f"Buy Stop @ {entry}"
+                
+            if vol > (avgvol * 1.2):
+                signals.append("🔥 Vol Spike")
+                
+            # Hitung Skor Keyakinan (Base 70%)
+            confidence = 70
+            
+            if is_pinbar and body > 0:
+                wick_ratio = lower_wick / body
+                if wick_ratio > 3: confidence += 10
+                elif wick_ratio > 2: confidence += 5
+                
+            if not pd.isna(avgvol) and avgvol > 0:
+                vol_ratio = vol / avgvol
+                if vol_ratio > 2.0: confidence += 10
+                elif vol_ratio > 1.5: confidence += 5
+                
+            distance = abs(low_p - ema34) / ema34
+            if distance <= 0.01: confidence += 10
+            elif distance <= 0.02: confidence += 5
+            
+            # Bonus Bandarmologi
+            if is_accum is True:
+                confidence += 15
+                signals.append(f"🐋 Akum: {accum_str} | Dis: {dist_str}")
+            elif is_accum is False:
+                confidence -= 20
+                signals.append(f"⚠️ Dis: {dist_str} | Akum: {accum_str}")
+            
+            confidence = min(confidence, 99) # Maksimal 99%
+            
+            tp1 = int(entry + (1.0 * atr))
+            tp2 = int(entry + (3.0 * atr))
+            sl = int(entry - (1.5 * atr))
+            
+            scan_state["results"].append({
+                "stock": stock,
+                "close": int(close_p),
+                "support": int(ema34), 
+                "resistance": int(tp2),
+                "signals": signals,
+                "score": confidence, 
+                "confidence": confidence,
+                "entry": entry_range,
+                "tp": f"TP1: {tp1} | TP2: {tp2}",
+                "sl": sl,
+                "data_time": time_str,
+                "delay": delay_minutes
+            })
+            
+            scan_state["log"].append(f"-> {stock} masuk radar V4.1! {signals[0]}")
+            
+        except Exception as e:
+            scan_state["log"].append(f"-> Error menganalisa {stock}: {str(e)}")
+            
+        scan_state["percent"] = int(((i + 1) / total) * 100)
+        time.sleep(1) 
+        
+    scan_state["results"].sort(key=lambda x: x["score"], reverse=True)
+    scan_state["status"] = "finished"
+    scan_state["log"].append("✅ Scanning V4.1 selesai.")
+
 if __name__ == '__main__':
     # Memastikan folder templates ada
     if not os.path.exists('templates'):
@@ -401,7 +603,7 @@ if __name__ == '__main__':
         
     init_db()
     print("="*60)
-    print("🤖 SERVER DATABASE & CHARTING AJAIB MENYALA")
-    print("👉 Buka dashboard grafik di: http://localhost:5000")
+    print("SERVER DATABASE & CHARTING AJAIB MENYALA")
+    print("Buka dashboard grafik di: http://localhost:5000")
     print("="*60)
     app.run(host='0.0.0.0', port=5000, debug=True)
