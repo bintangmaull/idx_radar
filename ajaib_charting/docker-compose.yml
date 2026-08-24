@@ -9,7 +9,7 @@ services:
     env_file:
       - .env
     volumes:
-      - ./orderbook.db:/app/orderbook.db
+      - sqlite_data:/app/data
       - ./watchlist.json:/app/watchlist.json
     networks:
       - dokploy-network
@@ -35,3 +35,6 @@ services:
 networks:
   dokploy-network:
     external: true
+
+volumes:
+  sqlite_data:

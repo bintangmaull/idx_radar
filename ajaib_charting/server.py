@@ -17,9 +17,11 @@ sr_cache = {}
 # Izinkan ekstensi Chrome untuk mengirim data (Cross-Origin Resource Sharing)
 CORS(app)  
 
-DB_FILE = 'orderbook.db'
+DB_FILE = 'data/orderbook.db'
 
 def init_db():
+    if not os.path.exists('data'):
+        os.makedirs('data')
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute('''
