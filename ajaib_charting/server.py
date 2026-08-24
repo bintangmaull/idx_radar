@@ -586,6 +586,17 @@ def run_scanner_v4():
                 "delay": delay_minutes
             })
             
+            # Simpan ke Database
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            c.execute('''
+                INSERT OR REPLACE INTO screener_results 
+                (stock_code, timestamp, signals, entry, tp, sl)
+                VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?)
+            ''', (stock, ', '.join(signals), entry_range, tp1, sl))
+            conn.commit()
+            conn.close()
+            
             scan_state["log"].append(f"-> {stock} masuk radar V4.1! {signals[0]}")
             
         except Exception as e:
