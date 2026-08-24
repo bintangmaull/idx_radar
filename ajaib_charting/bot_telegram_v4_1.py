@@ -6,10 +6,12 @@ import json
 import time
 import requests
 import pytz
+import sqlite3
 from dotenv import load_dotenv
 
 load_dotenv()
 
+DB_FILE = 'data/orderbook.db'
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID_HERE")
 SCAN_INTERVAL_SECONDS = 3600
@@ -184,6 +186,33 @@ def run_scanner():
                     f"⏳ _Berlaku maks 5 jam ke depan_"
                 )
                 print(f"[ALERT] V4.1 Signal for {stock}!")
+                
+                # Simpan ke database dashboard web
+                try:
+                    if not os.path.exists('data'):
+                        os.makedirs('data')
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    c.execute('''
+                        CREATE TABLE IF NOT EXISTS screener_results (
+                            stock_code TEXT PRIMARY KEY,
+                            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            signals TEXT,
+                            entry TEXT,
+                            tp INTEGER,
+                            sl INTEGER
+                        )
+                    ''')
+                    c.execute('''
+                        INSERT OR REPLACE INTO screener_results 
+                        (stock_code, timestamp, signals, entry, tp, sl)
+                        VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?)
+                    ''', (stock, cond_text.replace('\n', ', '), entry_text, tp1, sl))
+                    conn.commit()
+                    conn.close()
+                except Exception as e:
+                    print(f"[ERROR] Failed to save {stock} to DB: {e}")
+                    
                 success = send_telegram_message(msg)
                 if success or TELEGRAM_BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
                     alert_cache[alert_id] = True
