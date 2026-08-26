@@ -85,13 +85,19 @@ def check_bandarmology(stock_code):
     return None, 0, "", ""
 
 def get_ihsg_status(tv):
-    try:
-        ihsg = tv.get_hist(symbol='COMPOSITE', exchange='IDX', interval=Interval.in_daily, n_bars=50)
-        if ihsg is not None and not ihsg.empty:
-            ema34 = ihsg['close'].ewm(span=34, adjust=False).mean()
-            return ihsg['close'].iloc[-1] > ema34.iloc[-1]
-    except:
-        pass
+    for attempt in range(3):
+        try:
+            ihsg = tv.get_hist(symbol='COMPOSITE', exchange='IDX', interval=Interval.in_daily, n_bars=50)
+            if ihsg is not None and not ihsg.empty:
+                ema34 = ihsg['close'].ewm(span=34, adjust=False).mean()
+                return ihsg['close'].iloc[-1] > ema34.iloc[-1]
+        except Exception as e:
+            print(f"[IHSG RETRY] Gagal mengambil data IHSG, mencoba lagi... ({e})")
+            time.sleep(5)
+            try:
+                tv = TvDatafeed() # Re-init
+            except:
+                pass
     return True
 
 def run_scanner():
@@ -102,11 +108,25 @@ def run_scanner():
     ihsg_uptrend = get_ihsg_status(tv)
         
     for stock in wl:
+        hist = None
+        for attempt in range(3):
+            try:
+                hist = tv.get_hist(symbol=stock, exchange='IDX', interval=Interval.in_1_hour, n_bars=150)
+                if hist is not None and not hist.empty and len(hist) >= 90:
+                    break
+            except Exception as e:
+                print(f"[RETRY {attempt+1}] Gagal mengambil data {stock}, mencoba lagi... ({e})")
+                time.sleep(5)
+                try:
+                    tv = TvDatafeed() # Re-init
+                except:
+                    pass
+                    
+        if hist is None or hist.empty or len(hist) < 90:
+            print(f"[SKIP] Data tidak cukup atau gagal diambil untuk {stock}")
+            continue
+            
         try:
-            hist = tv.get_hist(symbol=stock, exchange='IDX', interval=Interval.in_1_hour, n_bars=150)
-            if hist is None or hist.empty or len(hist) < 90:
-                continue
-                
             hist.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close', 'volume': 'Volume'}, inplace=True)
             hist = hist.dropna()
             
@@ -220,7 +240,7 @@ def run_scanner():
         except Exception as e:
             print(f"[ERROR] Memproses {stock}: {e}")
             
-        time.sleep(1)
+        time.sleep(5)
         
 def main():
     print("=======================================")

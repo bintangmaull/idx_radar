@@ -83,13 +83,25 @@ def run_scanner():
     wl = load_watchlist()
     
     for stock in wl:
+        hist = None
+        for attempt in range(3):
+            try:
+                hist = tv.get_hist(symbol=stock, exchange='IDX', interval=Interval.in_5_minute, n_bars=400)
+                if hist is not None and not hist.empty:
+                    break
+            except Exception as e:
+                print(f"[RETRY {attempt+1}] Gagal mengambil data {stock}, mencoba lagi... ({e})")
+                time.sleep(2)
+                try:
+                    tv = TvDatafeed() # Re-init
+                except:
+                    pass
+                    
+        if hist is None or hist.empty:
+            print(f"[SKIP] Data tidak cukup atau gagal diambil untuk {stock}")
+            continue
+            
         try:
-            # Ambil data 5 menit, cukup sedikit saja karena kita butuh real-time & EMA200
-            # Untuk EMA200 kita butuh minimal 200 bar, kita ambil 400 bar
-            hist = tv.get_hist(symbol=stock, exchange='IDX', interval=Interval.in_5_minute, n_bars=400)
-            if hist is None or hist.empty:
-                continue
-                
             hist.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close', 'volume': 'Volume'}, inplace=True)
             hist = hist.dropna()
             
