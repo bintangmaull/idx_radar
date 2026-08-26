@@ -105,8 +105,8 @@ def run_backtest(initial_capital=5000000, fee_pct=0.0025):
                             in_trade = True
                             tp1_hit = False
                             atr_at_entry = pending_order['atr']
-                            sl_price = entry_price - (1.5 * atr_at_entry)
-                            tp1_price = entry_price + (1.0 * atr_at_entry)
+                            sl_price = pending_order['invalidation_price'] * 0.99 if pending_order['type'] == 'LIMIT' else entry_price - (1.2 * atr_at_entry)
+                            tp1_price = entry_price + (0.8 * atr_at_entry)
                             tp2_price = entry_price + (3.0 * atr_at_entry)
                             pending_order = None
                             continue
@@ -126,7 +126,7 @@ def run_backtest(initial_capital=5000000, fee_pct=0.0025):
                 
                 if not ihsg_uptrend: continue
                 if ema34 < ema90 or close_p < ema90: continue
-                if low_p > (ema34 * 1.03): continue
+                if low_p > (ema34 * 1.02): continue
                 
                 body = abs(close_p - open_p)
                 tr = high_p - low_p
@@ -134,17 +134,18 @@ def run_backtest(initial_capital=5000000, fee_pct=0.0025):
                 if tr == 0: continue
                 
                 is_bullish = close_p > open_p
-                is_pinbar = lower_wick > (1.5 * body) and close_p > ema34
-                is_strong_bullish = is_bullish and body > (0.6 * tr) and close_p > ema34
+                is_pinbar = lower_wick > (2.0 * body) and close_p > ema34
+                is_strong_bullish = is_bullish and body > (0.7 * tr) and close_p > ema34
                 
                 if not (is_pinbar or is_strong_bullish): continue
-                if vol < (avgvol * 1.2) or vol < 5000: continue
+                if vol < (avgvol * 1.5) or vol < 5000: continue
                 
                 if is_pinbar:
                     limit_price = (close_p + low_p) / 2
                     pending_order = {
                         'type': 'LIMIT',
                         'price': limit_price,
+                        'invalidation_price': low_p,
                         'atr': atr,
                         'bars_waited': 0
                     }

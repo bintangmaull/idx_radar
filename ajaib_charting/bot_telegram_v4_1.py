@@ -151,7 +151,7 @@ def run_scanner():
             
             # if not ihsg_uptrend: continue # Dinonaktifkan sesuai permintaan
             if ema34 < ema90 or close_p < ema90: continue
-            if low_p > (ema34 * 1.03): continue
+            if low_p > (ema34 * 1.02): continue
             
             body = abs(close_p - open_p)
             tr = high_p - low_p
@@ -159,15 +159,16 @@ def run_scanner():
             if tr == 0: continue
             
             is_bullish = close_p > open_p
-            is_pinbar = lower_wick > (1.5 * body) and close_p > ema34
-            is_strong_bullish = is_bullish and body > (0.6 * tr) and close_p > ema34
+            is_pinbar = lower_wick > (2.0 * body) and close_p > ema34
+            is_strong_bullish = is_bullish and body > (0.7 * tr) and close_p > ema34
             
             if not (is_pinbar or is_strong_bullish): continue
-            # Syarat volume dikembalikan super ketat (Wajib lonjakan 20% & > 5000 lot)
-            if pd.isna(avgvol) or vol < (avgvol * 1.2) or vol < 5000: continue
+            # Syarat volume dikembalikan super ketat (Wajib lonjakan 50% & > 5000 lot)
+            if pd.isna(avgvol) or vol < (avgvol * 1.5) or vol < 5000: continue
             
             # --- CEK BANDARMOLOGI ---
             is_accum, net_val, accum_str, dist_str = check_bandarmology(stock)
+            if is_accum is False: continue # Filter buang barang oleh bandar
                 
             candle_time = hist.index[-1].strftime("%Y%m%d_%H")
             alert_id = f"{stock}_{candle_time}_V50_ULTIMATE"
@@ -182,17 +183,15 @@ def run_scanner():
                     entry_text = f"Beli Saat Tembus (Buy Stop) di *Rp {entry}*"
                     cond_text = "Bullish Momentum"
                     
-                if vol > (avgvol * 1.2):
+                if vol > (avgvol * 1.5):
                     cond_text += " & Vol Spike 🔥"
                     
                 if is_accum is True:
                     cond_text += f"\n🐋 *Bandar Akumulasi* (Beli: {accum_str} | Jual: {dist_str})"
-                elif is_accum is False:
-                    cond_text += f"\n⚠️ *Bandar Distribusi* (Jual: {dist_str} | Beli: {accum_str}) - RISIKO TINGGI!"
                 
-                tp1 = int(entry + (1.0 * atr))
+                tp1 = int(entry + (0.8 * atr))
                 tp2 = int(entry + (3.0 * atr))
-                sl = int(entry - (1.5 * atr))
+                sl = int(low_p * 0.99) if is_pinbar else int(entry - (1.2 * atr))
                 
                 msg = (
                     f"🧠 *SMART ENTRY V4.1: {stock}* 🧠\n\n"
