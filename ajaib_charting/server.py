@@ -10,6 +10,35 @@ import json
 from tvDatafeed import TvDatafeed, Interval
 
 tv = TvDatafeed()
+tv_lock = threading.Lock()
+
+def safe_get_hist(symbol, exchange, interval, n_bars, max_retries=3):
+    global tv
+    for attempt in range(max_retries):
+        try:
+            with tv_lock:
+                time.sleep(1.5) # Jeda tambahan agar tidak kena rate limit
+                hist = tv.get_hist(symbol=symbol, exchange=exchange, interval=interval, n_bars=n_bars)
+            
+            if hist is not None and not hist.empty:
+                return hist
+                
+            print(f"[TvDatafeed] Data empty/None for {symbol}. Attempt {attempt+1}/{max_retries}")
+            time.sleep(5)
+            with tv_lock:
+                try:
+                    tv = TvDatafeed()
+                except:
+                    pass
+        except Exception as e:
+            print(f"[TvDatafeed] Exception for {symbol}: {e}. Attempt {attempt+1}/{max_retries}")
+            time.sleep(5)
+            with tv_lock:
+                try:
+                    tv = TvDatafeed()
+                except:
+                    pass
+    return None
 
 app = Flask(__name__)
 # Cache untuk menyimpan data Support & Resistance (agar tidak kena limit API)
@@ -119,7 +148,7 @@ def get_support_resistance(stock_code):
 
     try:
         # Ambil data 5 hari terakhir
-        hist = tv.get_hist(symbol=stock_code, exchange='IDX', interval=Interval.in_daily, n_bars=5)
+        hist = safe_get_hist(symbol=stock_code, exchange='IDX', interval=Interval.in_daily, n_bars=5)
         
         if hist is None or len(hist) < 2:
             return jsonify({"status": "error", "message": "Data tidak cukup"}), 404
@@ -295,10 +324,10 @@ def run_scanner_v1(timeframe='5m'):
             # --- INTRADAY SCALPING SETUP ---
             if timeframe == '1m':
                 # Mengambil data intraday dengan interval 1 menit (400 bars = ~1 hari)
-                hist = tv.get_hist(symbol=stock, exchange='IDX', interval=Interval.in_1_minute, n_bars=400)
+                hist = safe_get_hist(symbol=stock, exchange='IDX', interval=Interval.in_1_minute, n_bars=400)
             else:
                 # Mengambil data intraday dengan interval 5 menit (400 bars = ~5 hari)
-                hist = tv.get_hist(symbol=stock, exchange='IDX', interval=Interval.in_5_minute, n_bars=400)
+                hist = safe_get_hist(symbol=stock, exchange='IDX', interval=Interval.in_5_minute, n_bars=400)
             
             if hist is None or hist.empty:
                 scan_state["log"].append(f"-> Tidak ada data untuk {stock}")
@@ -428,7 +457,7 @@ def run_scanner_v1(timeframe='5m'):
             scan_state["log"].append(f"-> Error menganalisa {stock}: {str(e)}")
             
         scan_state["percent"] = int(((i + 1) / total) * 100)
-        time.sleep(2) # Jeda agar tidak kena block
+        time.sleep(3) # Jeda agar tidak kena block
         
     # Urutkan berdasarkan skor tertinggi setelah selesai
     scan_state["results"].sort(key=lambda x: x["score"], reverse=True)
@@ -476,7 +505,7 @@ def run_scanner_v4():
     
     def get_ihsg_status_local():
         try:
-            ihsg = tv.get_hist(symbol='COMPOSITE', exchange='IDX', interval=Interval.in_daily, n_bars=50)
+            ihsg = safe_get_hist(symbol='COMPOSITE', exchange='IDX', interval=Interval.in_daily, n_bars=50)
             if ihsg is not None and not ihsg.empty:
                 ema34 = ihsg['close'].ewm(span=34, adjust=False).mean()
                 return ihsg['close'].iloc[-1] > ema34.iloc[-1]
@@ -493,7 +522,7 @@ def run_scanner_v4():
     for i, stock in enumerate(wl):
         scan_state["log"].append(f"Menganalisa {stock} ({i+1}/{total})...")
         try:
-            hist = tv.get_hist(symbol=stock, exchange='IDX', interval=Interval.in_1_hour, n_bars=150)
+            hist = safe_get_hist(symbol=stock, exchange='IDX', interval=Interval.in_1_hour, n_bars=150)
             if hist is None or hist.empty or len(hist) < 90:
                 scan_state["log"].append(f"-> Tidak ada data cukup untuk {stock}")
                 continue
@@ -630,7 +659,7 @@ def run_scanner_v4():
             scan_state["log"].append(f"-> Error menganalisa {stock}: {str(e)}")
             
         scan_state["percent"] = int(((i + 1) / total) * 100)
-        time.sleep(1) 
+        time.sleep(3) 
         
     scan_state["results"].sort(key=lambda x: x["score"], reverse=True)
     scan_state["status"] = "finished"

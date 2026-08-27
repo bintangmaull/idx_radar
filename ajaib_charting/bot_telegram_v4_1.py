@@ -87,10 +87,16 @@ def check_bandarmology(stock_code):
 def get_ihsg_status(tv):
     for attempt in range(3):
         try:
+            time.sleep(1.5)
             ihsg = tv.get_hist(symbol='COMPOSITE', exchange='IDX', interval=Interval.in_daily, n_bars=50)
             if ihsg is not None and not ihsg.empty:
                 ema34 = ihsg['close'].ewm(span=34, adjust=False).mean()
                 return ihsg['close'].iloc[-1] > ema34.iloc[-1]
+            else:
+                print(f"[IHSG RETRY] Data kosong/None untuk IHSG, re-init...")
+                time.sleep(5)
+                try: tv = TvDatafeed()
+                except: pass
         except Exception as e:
             print(f"[IHSG RETRY] Gagal mengambil data IHSG, mencoba lagi... ({e})")
             time.sleep(5)
@@ -111,9 +117,15 @@ def run_scanner():
         hist = None
         for attempt in range(3):
             try:
+                time.sleep(1.5)
                 hist = tv.get_hist(symbol=stock, exchange='IDX', interval=Interval.in_1_hour, n_bars=150)
                 if hist is not None and not hist.empty and len(hist) >= 90:
                     break
+                else:
+                    print(f"[RETRY {attempt+1}] Data kosong/None untuk {stock}, re-init...")
+                    time.sleep(5)
+                    try: tv = TvDatafeed()
+                    except: pass
             except Exception as e:
                 print(f"[RETRY {attempt+1}] Gagal mengambil data {stock}, mencoba lagi... ({e})")
                 time.sleep(5)
