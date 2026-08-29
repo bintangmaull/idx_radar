@@ -783,15 +783,39 @@ def run_scanner_v5():
             signals.append("💎 High Winrate Setup")
             signals.append(f"🐋 Akum Kuat: {accum_str}")
                 
-            # Hitung Skor Keyakinan (Base 85% karena akumulasi dikonfirmasi)
-            confidence = 85
+            # Hitung Skor Keyakinan Berdasarkan Kualitas Broker
+            confidence = 60 # Base 60%, sisanya ditentukan dari siapa yang beli/jual
+            
+            institusi = ['AK', 'BK', 'ZP', 'CS', 'RX']
+            ritel = ['YP', 'PD', 'XC', 'XL', 'CC']
+            bandar_lokal = ['MG', 'YJ']
+            
+            top_buyers_list = accum_str.split(',') if accum_str else []
+            top_sellers_list = dist_str.split(',') if dist_str else []
+            
+            # Evaluasi Top Buyer (Sisi Kiri)
+            for b in top_buyers_list:
+                if b in institusi:
+                    confidence += 10 # SANGAT BAGUS: Institusi akumulasi
+                elif b in ritel:
+                    confidence -= 10 # JELEK: Ritel FOMO / nampung
+                elif b in bandar_lokal:
+                    confidence -= 5  # SANGAT BERISIKO: Scalper main cepat
+                    
+            # Evaluasi Top Seller (Sisi Kanan)
+            for s in top_sellers_list:
+                if s in institusi:
+                    confidence -= 15 # SANGAT JELEK/BAHAYA: Institusi buang barang
+                elif s in ritel:
+                    confidence += 10 # SANGAT BAGUS: Ritel cutloss massal (kapitulasi)
+                # Bandar lokal buang = NETRAL (0)
             
             if is_near_support: confidence += 5
             if close_p > ema20: confidence += 4
             # Jika secara tidak sengaja volumenya tinggi saat akumulasi, tambah skor
             if vol > (avgvol * 1.5): confidence += 5
             
-            confidence = min(confidence, 99) # Maksimal 99%
+            confidence = min(max(confidence, 10), 99) # Maksimal 99%, Minimal 10%
             
             # Risk Reward Swing Jangka Menengah (1-2 Bulan)
             # Target Return > 20%
