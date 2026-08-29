@@ -76,6 +76,7 @@
                 <h2 class="text-xl font-bold text-emerald-400">🔥 Radar Saham EOD (Gorengan)</h2>
                 <div class="flex items-center space-x-3">
                     <select id="algoSelector" class="bg-gray-800 border border-gray-700 text-white rounded px-4 py-2 text-sm font-semibold focus:outline-none focus:border-emerald-500">
+                        <option value="v5">V5 Deep Scan (High Winrate Swing)</option>
                         <option value="v4">V4.1 Smart Entry (Swing)</option>
                         <option value="v1">V1/V2 Scalping (Intraday)</option>
                     </select>
@@ -310,7 +311,11 @@
         // Event listener saat algoritma diganti
         document.getElementById('algoSelector').addEventListener('change', (e) => {
             const tfSelector = document.getElementById('timeframeSelector');
-            if (e.target.value === 'v4') {
+            if (e.target.value === 'v5') {
+                tfSelector.innerHTML = '<option value="1d">1 Hari (1D)</option>';
+                tfSelector.disabled = true;
+                tfSelector.classList.add('opacity-50');
+            } else if (e.target.value === 'v4') {
                 tfSelector.innerHTML = '<option value="1h">1 Jam (1h)</option>';
                 tfSelector.disabled = true;
                 tfSelector.classList.add('opacity-50');

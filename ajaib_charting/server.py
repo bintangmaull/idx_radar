@@ -299,7 +299,9 @@ def start_scan():
         "percent": 0
     }
     
-    if algorithm == 'v4':
+    if algorithm == 'v5':
+        thread = threading.Thread(target=run_scanner_v5)
+    elif algorithm == 'v4':
         thread = threading.Thread(target=run_scanner_v4)
     else:
         thread = threading.Thread(target=run_scanner_v1, args=(timeframe,))
@@ -664,6 +666,178 @@ def run_scanner_v4():
     scan_state["results"].sort(key=lambda x: x["score"], reverse=True)
     scan_state["status"] = "finished"
     scan_state["log"].append("✅ Scanning V4.1 selesai.")
+
+def run_scanner_v5():
+    global scan_state
+    wl = load_watchlist()
+    total = len(wl)
+    
+    def get_ihsg_status_local():
+        try:
+            ihsg = safe_get_hist(symbol='COMPOSITE', exchange='IDX', interval=Interval.in_daily, n_bars=200)
+            if ihsg is not None and not ihsg.empty:
+                ema200 = ihsg['close'].ewm(span=200, adjust=False).mean()
+                return ihsg['close'].iloc[-1] > ema200.iloc[-1]
+        except:
+            pass
+        return True
+        
+    ihsg_uptrend = get_ihsg_status_local()
+    if not ihsg_uptrend:
+        scan_state["log"].append("[IHSG] Market Makro sedang Downtrend. Bot V5 mungkin tidak menemukan hasil.")
+    else:
+        scan_state["log"].append("[IHSG] Market Makro sedang Uptrend.")
+        
+    for i, stock in enumerate(wl):
+        scan_state["log"].append(f"Menganalisa {stock} ({i+1}/{total})...")
+        try:
+            hist = safe_get_hist(symbol=stock, exchange='IDX', interval=Interval.in_daily, n_bars=250)
+            if hist is None or hist.empty or len(hist) < 200:
+                scan_state["log"].append(f"-> Tidak ada data cukup untuk {stock}")
+                continue
+                
+            hist.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close', 'volume': 'Volume'}, inplace=True)
+            hist = hist.dropna()
+            
+            hist['EMA20'] = hist['Close'].ewm(span=20, adjust=False).mean()
+            hist['EMA50'] = hist['Close'].ewm(span=50, adjust=False).mean()
+            hist['EMA90'] = hist['Close'].ewm(span=90, adjust=False).mean()
+            hist['EMA200'] = hist['Close'].ewm(span=200, adjust=False).mean()
+            hist['TR'] = hist['High'] - hist['Low']
+            hist['ATR14'] = hist['TR'].rolling(window=14).mean()
+            hist['AvgVol20'] = hist['Volume'].rolling(window=20).mean()
+            
+            last_bar = hist.iloc[-1]
+            close_p = last_bar['Close']
+            open_p = last_bar['Open']
+            high_p = last_bar['High']
+            low_p = last_bar['Low']
+            vol = last_bar['Volume']
+            avgvol = last_bar['AvgVol20']
+            atr = last_bar['ATR14']
+            ema20 = last_bar['EMA20']
+            ema50 = last_bar['EMA50']
+            ema90 = last_bar['EMA90']
+            ema200 = last_bar['EMA200']
+            
+            import pytz
+            from datetime import datetime
+            import pandas as pd
+            jkt_tz = pytz.timezone('Asia/Jakarta')
+            now_jkt = datetime.now(jkt_tz)
+            last_time = hist.index[-1]
+            if last_time.tzinfo is None:
+                last_time = jkt_tz.localize(last_time)
+            else:
+                last_time = last_time.astimezone(jkt_tz)
+                
+            delay_minutes = int((now_jkt - last_time).total_seconds() / 60)
+            if delay_minutes < 0: delay_minutes = 0
+            time_str = last_time.strftime("%d %b %H:%M") # Daily timeframe butuh info tanggal
+            
+            # --- 1. MACRO TREND FILTER ---
+            # Saham wajib uptrend jangka menengah/panjang
+            if close_p < ema200 or ema50 < ema200: 
+                continue
+                
+            # --- 2. SETUP FILTER (PULLBACK) ---
+            # Cari harga yang sedang koreksi ke dekat EMA50 atau EMA90
+            distance_to_ema50 = abs(low_p - ema50) / ema50
+            distance_to_ema90 = abs(low_p - ema90) / ema90
+            
+            is_near_support = distance_to_ema50 <= 0.05 or distance_to_ema90 <= 0.05
+            if not is_near_support:
+                continue
+                
+            body = abs(close_p - open_p)
+            tr = high_p - low_p
+            if tr == 0: continue
+            
+            # Cek Fase Konsolidasi / Sideways
+            # Harga tidak boleh bergerak terlalu liar (TR lebih kecil dari 1.5x ATR)
+            # Ini menandakan harga sedang stabil/diakumulasi perlahan
+            is_consolidating = tr <= (1.5 * atr)
+            
+            if not is_consolidating:
+                continue
+                
+            # --- 3. VOLUME FILTER ---
+            # Karena ini fase akumulasi, volume belum tentu meledak.
+            # Yang penting likuiditas cukup (minimal 5000 lot sehari)
+            if pd.isna(avgvol) or avgvol < 5000:
+                continue
+            
+            # --- 4. BANDARMOLOGY FILTER (FILTER UTAMA) ---
+            is_accum, net_val, accum_str, dist_str = check_bandarmology(stock)
+            
+            # Wajib Akumulasi! Jika distribusi atau netral, buang.
+            if not is_accum:
+                continue
+                
+            signals = []
+            signals.append("📦 Fase Akumulasi (Sideways)")
+            entry = int(close_p)
+                
+            entry_range = f"Buy Area @ {entry} - {int(low_p)}"
+            
+            signals.append("💎 High Winrate Setup")
+            signals.append(f"🐋 Akum Kuat: {accum_str}")
+                
+            # Hitung Skor Keyakinan (Base 85% karena akumulasi dikonfirmasi)
+            confidence = 85
+            
+            if is_near_support: confidence += 5
+            if close_p > ema20: confidence += 4
+            # Jika secara tidak sengaja volumenya tinggi saat akumulasi, tambah skor
+            if vol > (avgvol * 1.5): confidence += 5
+            
+            confidence = min(confidence, 99) # Maksimal 99%
+            
+            # Risk Reward Swing Jangka Menengah (1-2 Bulan)
+            # Target Return > 20%
+            tp1 = int(entry * 1.20) # +20%
+            tp2 = int(entry * 1.35) # +35%
+            
+            # Stop Loss agak lebar agar tidak mudah tersentuh noise (maks -10% atau bawah ekor)
+            sl = int(min(entry * 0.90, low_p * 0.95))
+            
+            scan_state["results"].append({
+                "stock": stock,
+                "close": int(close_p),
+                "support": int(ema50), 
+                "resistance": int(tp2),
+                "signals": signals,
+                "score": confidence, 
+                "confidence": confidence,
+                "entry": entry_range,
+                "tp": f"TP1: {tp1} | TP2: {tp2}",
+                "sl": sl,
+                "data_time": time_str,
+                "delay": delay_minutes
+            })
+            
+            # Simpan ke Database
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            c.execute('''
+                INSERT OR REPLACE INTO screener_results 
+                (stock_code, timestamp, signals, entry, tp, sl)
+                VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?)
+            ''', (stock, ', '.join(signals), entry_range, tp2, sl))
+            conn.commit()
+            conn.close()
+            
+            scan_state["log"].append(f"-> {stock} LULUS V5 DEEP SCAN! ⭐⭐⭐")
+            
+        except Exception as e:
+            scan_state["log"].append(f"-> Error menganalisa {stock}: {str(e)}")
+            
+        scan_state["percent"] = int(((i + 1) / total) * 100)
+        time.sleep(3.5) # Jeda sedikit lebih lama untuk daily data agar tidak kena limit
+        
+    scan_state["results"].sort(key=lambda x: x["score"], reverse=True)
+    scan_state["status"] = "finished"
+    scan_state["log"].append("✅ Scanning V5 Deep Scan selesai.")
 
 if __name__ == '__main__':
     # Memastikan folder templates ada
