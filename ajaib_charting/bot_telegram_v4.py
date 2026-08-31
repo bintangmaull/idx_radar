@@ -46,19 +46,24 @@ def is_market_open():
     return False
 
 def get_ihsg_status(tv):
+    backoff = 2
     for attempt in range(3):
         try:
             ihsg = tv.get_hist(symbol='COMPOSITE', exchange='IDX', interval=Interval.in_daily, n_bars=50)
             if ihsg is not None and not ihsg.empty:
                 ema34 = ihsg['close'].ewm(span=34, adjust=False).mean()
                 return ihsg['close'].iloc[-1] > ema34.iloc[-1]
+            else:
+                print(f"[IHSG RETRY {attempt+1}] Data kosong/None untuk IHSG, menunggu {backoff} detik...")
+                time.sleep(backoff)
+                backoff *= 2
         except Exception as e:
-            print(f"[IHSG RETRY] Gagal mengambil data IHSG, mencoba lagi... ({e})")
-            time.sleep(2)
-            try:
-                tv = TvDatafeed() # Re-init
-            except:
-                pass
+            print(f"[IHSG RETRY {attempt+1}] Gagal mengambil data IHSG: {e}, menunggu {backoff} detik...")
+            time.sleep(backoff)
+            backoff *= 2
+            if "timeout" in str(e).lower() or "connection" in str(e).lower():
+                try: tv = TvDatafeed()
+                except: pass
     return True
 
 def run_scanner():
@@ -74,18 +79,25 @@ def run_scanner():
         
     for stock in wl:
         hist = None
+        backoff = 2
         for attempt in range(3):
             try:
                 hist = tv.get_hist(symbol=stock, exchange='IDX', interval=Interval.in_1_hour, n_bars=150)
                 if hist is not None and not hist.empty and len(hist) >= 90:
                     break
+                else:
+                    print(f"[RETRY {attempt+1}] Data kosong/None untuk {stock}, menunggu {backoff} detik...")
+                    time.sleep(backoff)
+                    backoff *= 2
             except Exception as e:
-                print(f"[RETRY {attempt+1}] Gagal mengambil data {stock}, mencoba lagi... ({e})")
-                time.sleep(2)
-                try:
-                    tv = TvDatafeed() # Re-init
-                except:
-                    pass
+                print(f"[RETRY {attempt+1}] Gagal mengambil data {stock}: {e}, menunggu {backoff} detik...")
+                time.sleep(backoff)
+                backoff *= 2
+                if "timeout" in str(e).lower() or "connection" in str(e).lower():
+                    try:
+                        tv = TvDatafeed() # Re-init
+                    except:
+                        pass
                     
         if hist is None or hist.empty or len(hist) < 90:
             print(f"[SKIP] Data tidak cukup atau gagal diambil untuk {stock}")
