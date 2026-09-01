@@ -78,6 +78,7 @@
                     <select id="algoSelector" class="bg-gray-800 border border-gray-700 text-white rounded px-4 py-2 text-sm font-semibold focus:outline-none focus:border-emerald-500">
                         <option value="v5">V5 Deep Scan (High Winrate Swing)</option>
                         <option value="v4">V4.1 Smart Entry (Swing)</option>
+                        <option value="bsjp">BSJP (Beli Sore Jual Pagi)</option>
                         <option value="v1">V1/V2 Scalping (Intraday)</option>
                     </select>
                     <select id="timeframeSelector" class="bg-gray-800 border border-gray-700 text-white rounded px-4 py-2 text-sm font-semibold focus:outline-none focus:border-emerald-500">
@@ -316,6 +317,10 @@
                 tfSelector.disabled = true;
                 tfSelector.classList.add('opacity-50');
             } else if (e.target.value === 'v4') {
+                tfSelector.innerHTML = '<option value="1h">1 Jam (1h)</option>';
+                tfSelector.disabled = true;
+                tfSelector.classList.add('opacity-50');
+            } else if (e.target.value === 'bsjp') {
                 tfSelector.innerHTML = '<option value="1h">1 Jam (1h)</option>';
                 tfSelector.disabled = true;
                 tfSelector.classList.add('opacity-50');

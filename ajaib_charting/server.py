@@ -303,6 +303,8 @@ def start_scan():
         thread = threading.Thread(target=run_scanner_v5)
     elif algorithm == 'v4':
         thread = threading.Thread(target=run_scanner_v4)
+    elif algorithm == 'bsjp':
+        thread = threading.Thread(target=run_scanner_bsjp)
     else:
         thread = threading.Thread(target=run_scanner_v1, args=(timeframe,))
         
@@ -862,6 +864,141 @@ def run_scanner_v5():
     scan_state["results"].sort(key=lambda x: x["score"], reverse=True)
     scan_state["status"] = "finished"
     scan_state["log"].append("✅ Scanning V5 Deep Scan selesai.")
+
+def run_scanner_bsjp():
+    global scan_state
+    wl = load_watchlist()
+    total = len(wl)
+    
+    scan_state["log"].append("[BSJP] Memulai scanning Beli Sore Jual Pagi (Daily).")
+        
+    for i, stock in enumerate(wl):
+        scan_state["log"].append(f"Menganalisa {stock} ({i+1}/{total})...")
+        try:
+            # Menggunakan interval Daily untuk menghitung kenaikan harian dan SMA 20 hari
+            hist = safe_get_hist(symbol=stock, exchange='IDX', interval=Interval.in_daily, n_bars=50)
+            if hist is None or hist.empty or len(hist) < 25:
+                scan_state["log"].append(f"-> Tidak ada data cukup untuk {stock}")
+                continue
+                
+            hist.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close', 'volume': 'Volume'}, inplace=True)
+            hist = hist.dropna()
+            
+            # Hitung indikator (SMA 20 untuk Volume)
+            hist['AvgVol20'] = hist['Volume'].rolling(window=20).mean()
+            
+            if len(hist) < 2: continue
+            
+            last_bar = hist.iloc[-1]
+            prev_bar = hist.iloc[-2]
+            
+            close_p = last_bar['Close']
+            open_p = last_bar['Open']
+            high_p = last_bar['High']
+            low_p = last_bar['Low']
+            vol = last_bar['Volume']
+            avgvol = last_bar['AvgVol20']
+            
+            prev_close = prev_bar['Close']
+            
+            import pytz
+            from datetime import datetime
+            import pandas as pd
+            jkt_tz = pytz.timezone('Asia/Jakarta')
+            now_jkt = datetime.now(jkt_tz)
+            last_time = hist.index[-1]
+            if last_time.tzinfo is None:
+                last_time = jkt_tz.localize(last_time)
+            else:
+                last_time = last_time.astimezone(jkt_tz)
+                
+            delay_minutes = int((now_jkt - last_time).total_seconds() / 60)
+            if delay_minutes < 0: delay_minutes = 0
+            time_str = last_time.strftime("%d %b")
+            
+            # --- FILTER 1: Batasan Harga Dasar (Bukan Saham Gocap) ---
+            if prev_close <= 50:
+                continue
+                
+            # --- FILTER 2: Lonjakan Harga (Price Action > 4%) ---
+            price_return = (close_p - prev_close) / prev_close
+            if price_return < 0.04: # Naik minimal 4%
+                continue
+                
+            # --- FILTER 3: Lonjakan Volume (Volume Breakout > 1.5x) ---
+            if pd.isna(avgvol) or vol <= (1.5 * avgvol):
+                continue
+                
+            # --- FILTER 4: Likuiditas (Transaction Value > 1 Miliar) ---
+            # volume tvDatafeed adalah dalam lembar saham
+            transaction_value = vol * close_p
+            if transaction_value < 1000000000: # 1 Miliar Rupiah
+                continue
+                
+            # --- FILTER 5: BANDARMOLOGY (Konfirmasi Tambahan) ---
+            is_accum, net_val, accum_str, dist_str = check_bandarmology(stock)
+            if not is_accum:
+                continue
+                
+            signals = ["🌇 Setup BSJP", f"🚀 Kenaikan {price_return*100:.1f}%"]
+            entry = int(close_p)
+            entry_range = f"Buy @ {entry}"
+            
+            signals.append(f"🐋 Akum: {accum_str}")
+            
+            confidence = 80
+            # Tambahan jika penutupan sangat kuat (dekat high)
+            range_hl = high_p - low_p
+            if range_hl > 0:
+                close_to_high_ratio = (high_p - close_p) / range_hl
+                if close_to_high_ratio < 0.2: confidence += 10
+            
+            confidence = min(confidence, 99)
+            
+            # TP Target: 1.5% sampai 3% untuk besok pagi
+            tp1 = int(entry * 1.015)
+            tp2 = int(entry * 1.03)
+            
+            # Cutloss ketat di bawah low hari ini atau -2%
+            sl = int(min(entry * 0.98, low_p * 0.99))
+            
+            scan_state["results"].append({
+                "stock": stock,
+                "close": int(close_p),
+                "support": int(prev_close), 
+                "resistance": int(tp2),
+                "signals": signals,
+                "score": confidence, 
+                "confidence": confidence,
+                "entry": entry_range,
+                "tp": f"TP: {tp1} - {tp2}",
+                "sl": sl,
+                "data_time": time_str,
+                "delay": delay_minutes
+            })
+            
+            # Simpan ke Database
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            c.execute('''
+                INSERT OR REPLACE INTO screener_results 
+                (stock_code, timestamp, signals, entry, tp, sl)
+                VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?)
+            ''', (stock, ', '.join(signals), entry_range, tp1, sl))
+            conn.commit()
+            conn.close()
+            
+            scan_state["log"].append(f"-> {stock} LULUS BSJP!")
+            
+        except Exception as e:
+            scan_state["log"].append(f"-> Error menganalisa {stock}: {str(e)}")
+            
+        scan_state["percent"] = int(((i + 1) / total) * 100)
+        time.sleep(3)
+        
+    scan_state["results"].sort(key=lambda x: x["score"], reverse=True)
+    scan_state["status"] = "finished"
+    scan_state["log"].append("✅ Scanning BSJP selesai.")
 
 if __name__ == '__main__':
     # Memastikan folder templates ada
